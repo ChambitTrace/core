@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: Chambit-Runtime-InNodeAgent
+spec:
+  template:
+    spec:
+      containers:
+        - name: inNodeAgent
+          image: your-agent-image
+          securityContext:
+            privileged: true  # eBPF/strace를 위해 필요
+          volumeMounts:
+            - name: host-root
+              mountPath: /host
+              readOnly: true
+      volumes:
+        - name: host-root
+          hostPath:
+            path: /
