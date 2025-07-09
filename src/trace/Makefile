@@ -3,10 +3,10 @@ BPF_CFLAGS = -g -O2 -target bpf                     \
              -D__TARGET_ARCH_x86                   \
              -I. -I/usr/include                    \
              -Wall -Wno-unused-variable
-
+LIBBPF_DIR ?= /app/external/libbpf/src
 LOADER_CC = gcc
-LOADER_CFLAGS = -g -O2 -I. 
-LOADER_LDFLAGS = -lbpf -lelf -lz
+LOADER_CFLAGS = -g -O2 -I$(LIBBPF_DIR)
+LOADER_LDFLAGS = $(LIBBPF_DIR)/libbpf.a -lelf -lz
 
 BPF_SRC = trace.bpf.c
 BPF_OBJ = trace.bpf.o
@@ -24,7 +24,7 @@ $(BPF_OBJ): $(BPF_SRC) event.h vmlinux.h
 
 # 2. Skeleton 생성
 $(BPF_SKEL): $(BPF_OBJ)
-	bpftool gen skeleton $(BPF_OBJ) > $(BPF_SKEL)
+	/usr/local/bin/bpftool gen skeleton $(BPF_OBJ) > $(BPF_SKEL)
 
 # 3. 유저 로더 빌드
 $(LOADER_BIN): $(LOADER_SRC) $(BPF_SKEL) event.h

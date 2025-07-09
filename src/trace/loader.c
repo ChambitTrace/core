@@ -8,6 +8,12 @@
 #include "event.h"
 #include <json-c/json.h>
 #include <time.h>
+#include <sys/resource.h>
+
+void bump_memlock_rlimit(void) {
+    struct rlimit r = {RLIM_INFINITY, RLIM_INFINITY};
+    setrlimit(RLIMIT_MEMLOCK, &r);
+}
 
 static volatile bool exiting = false;
 
@@ -38,10 +44,12 @@ static int handle_event(void *ctx, void *data, size_t data_sz) {
 }
 
 int main() {
+    bump_memlock_rlimit();
+    
     struct trace_bpf *skel;
     struct ring_buffer *rb = NULL;
     int err;
-
+    
     signal(SIGINT, handle_signal);
 
     // Skeleton 로드
