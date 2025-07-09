@@ -11,11 +11,8 @@ RUN apt-get update && \
     libjson-c-dev
 
 # bpftool with libbpf (submodule)
-RUN git clone --recurse-submodules https://github.com/libbpf/bpftool.git /tmp/bpftool && \
-    cd /tmp/bpftool/src && make && \
-    cp bpftool /usr/local/bin/ && \
-    rm -rf /tmp/bpftool
-
+WORKDIR /app/external/bpftool/src
+RUN make && cp bpftool /usr/local/bin/
 
 # 2. 작업 디렉토리 설정
 WORKDIR /app
