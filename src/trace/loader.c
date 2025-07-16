@@ -24,22 +24,16 @@ void handle_signal(int sig) {
 // 이벤트 핸들러
 static int handle_event(void *ctx, void *data, size_t data_sz) {
     const struct event_t *e = data;
-    // printf("[exec] PID: %d | Path: %s\n", e->pid, e->filename);
     // 시간 스탬프 생성
     time_t now = time(NULL);
     char timebuf[64];
     strftime(timebuf, sizeof(timebuf), "%FT%T%z", localtime(&now));
 
-    // 로그 파일 경로 (DaemonSet에서 hostPath로 마운트된 디렉토리)
-    FILE *f = fopen("/host/var/log/ebpf_exec.log", "a");
-    if (!f) return 0;
+    // JSON 형식으로 표준 출력에 작성 (main.go에서 읽을 수 있도록)
+    printf("{\"timestamp\":\"%s\",\"pid\":%d,\"path\":\"%s\"}\n",
+           timebuf, e->pid, e->filename);
+    fflush(stdout);  // 버퍼를 즉시 플러시하여 main.go가 즉시 읽을 수 있도록
 
-    // JSON 형식으로 로그 작성
-    fprintf(f,
-        "{ \"timestamp\": \"%s\", \"pid\": %d, \"path\": \"%s\" }\n",
-        timebuf, e->pid, e->filename);
-
-    fclose(f);
     return 0;
 }
 

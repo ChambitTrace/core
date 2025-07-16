@@ -1,20 +1,45 @@
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: Chambit-Runtime-InNodeAgent
+  name: chambit-agent
+  namespace: kube-system
 spec:
+  selector:
+    matchLabels:
+      app: chambit-agent
   template:
+    metadata:
+      labels:
+        app: chambit-agent
     spec:
+      imagePullSecrets:
+        - name: chambit-ghcr-secret
+      hostPID: true  # 커널에 접근 필요
       containers:
-        - name: inNodeAgent
-          image: your-agent-image
-          securityContext:
-            privileged: true  # eBPF/strace를 위해 필요
-          volumeMounts:
-            - name: host-root
-              mountPath: /host
-              readOnly: true
+      - name: chambit-agent
+        image: ghcr.io/chambittrace/core:v1.0.1
+        securityContext:
+          privileged: true  # BPF 프로그램 로드 시 필요        
+        volumeMounts:
+        - name: bpf
+          mountPath: /sys/fs/bpf
+        - name: modules
+          mountPath: /lib/modules
+        - name: tracefs
+          mountPath: /sys/kernel/debug
+        - name: host-varlog
+          mountPath: /host/var/log
       volumes:
-        - name: host-root
-          hostPath:
-            path: /
+      - name: bpf
+        hostPath:
+          path: /sys/fs/bpf
+      - name: modules
+        hostPath:
+          path: /lib/modules
+      - name: tracefs
+        hostPath:
+          path: /sys/kernel/debug
+      - name: host-varlog
+        hostPath:
+          path: /var/log
+      restartPolicy: Always

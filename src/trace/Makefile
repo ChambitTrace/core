@@ -3,7 +3,7 @@ BPF_CFLAGS = -g -O2 -target bpf                     \
              -D__TARGET_ARCH_x86                   \
              -I. -I/usr/include                    \
              -Wall -Wno-unused-variable
-LIBBPF_DIR ?= /app/external/libbpf/src
+LIBBPF_DIR ?= ../../external/libbpf/src
 LOADER_CC = gcc
 LOADER_CFLAGS = -g -O2 -I$(LIBBPF_DIR)
 LOADER_LDFLAGS = $(LIBBPF_DIR)/libbpf.a -lelf -lz

@@ -35,5 +35,5 @@ docker run -d \
 - You can check the log through ebpf with the code below.
 ```
 docker exec -it <continer-name> bash
-sudo tail -f /host/var/log/ebpf_exec.log
+tail -f /host/var/log/ebpf_exec.log
 ```

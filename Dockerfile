@@ -38,7 +38,7 @@ RUN cd /app/src/trace && \
     make clean && \
     make
 
-ENTRYPOINT ["./src/trace/loader"]
+ENTRYPOINT ["./src/triger/main"]
 
 
 # test
