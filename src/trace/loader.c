@@ -30,8 +30,8 @@ static int handle_event(void *ctx, void *data, size_t data_sz) {
     strftime(timebuf, sizeof(timebuf), "%FT%T%z", localtime(&now));
 
     // JSON 형식으로 표준 출력에 작성 (main.go에서 읽을 수 있도록)
-    printf("{\"timestamp\":\"%s\",\"pid\":%d,\"path\":\"%s\"}\n",
-           timebuf, e->pid, e->filename);
+    printf("{\"timestamp\":\"%s\",\"pid\":%d,\"comm\":\"%s\",\"path\":\"%s\",\"cgroup_id\":%llu}\n",
+        timebuf, e->pid, e->comm, e->filename, e->cgroup_id);
     fflush(stdout);  // 버퍼를 즉시 플러시하여 main.go가 즉시 읽을 수 있도록
 
     return 0;

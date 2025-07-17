@@ -25,6 +25,8 @@ int trace_execve(struct trace_event_raw_sys_enter *ctx) {
     }
 
     event->pid = bpf_get_current_pid_tgid() >> 32;
+    event->cgroup_id = bpf_get_current_cgroup_id();  // 컨테이너 추적용
+    bpf_get_current_comm(&event->comm, sizeof(event->comm)); //프로세스 이름
     bpf_probe_read_user_str(event->filename, sizeof(event->filename), filename);
     bpf_ringbuf_submit(event, 0);
     return 0;

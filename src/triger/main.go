@@ -15,10 +15,14 @@ import (
 )
 
 type Event struct {
-    Timestamp string `json:"timestamp"`
-    PID       int    `json:"pid"`
-    Path      string `json:"path"`
-    Node      string `json:"node"`
+    Timestamp   string `json:"timestamp"`
+    PID         int    `json:"pid"`
+    Path        string `json:"path"`
+    Node        string `json:"node"`
+    ContainerID string `json:"container_id,omitempty"`
+    Pod         string `json:"pod,omitempty"`
+    Namespace   string `json:"namespace,omitempty"`
+    Image       string `json:"image,omitempty"`
 }
 
 func main() {
@@ -74,6 +78,13 @@ func main() {
         }
         event.Node = hostname
         
+
+        // Insert dummy container metadata fields to simulate a resolved container context
+        event.ContainerID = "dummy-container-id"
+        event.Pod = "vex-oci-attach-846c94769d-cwgz9"
+        event.Namespace = "default"
+        event.Image = "ghcr.io/anchore/test-images/vex-oci-attach:51198f0"
+
         // 현재 노드가 아니면 전송하지 않음
         if event.Node != hostname {
             continue
