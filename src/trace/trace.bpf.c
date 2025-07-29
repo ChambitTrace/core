@@ -64,36 +64,36 @@ struct {
 // --- 매크로 정의 (코드 중복 최소화) ---
 
 // [추가] 인자 없이 호출 자체만 감시하는 시스템 콜을 위한 매크로
-#define TRACE_SYSCALL_SIMPLE(name, type_enum)
-	SEC("tracepoint/syscalls/sys_enter_" #name)
-	int tracepoint__syscalls__sys_enter_##name(
-		struct trace_event_raw_sys_enter *ctx) { 
-		struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
-		if (!e) return 0;
-		e->cgroup_id = bpf_get_current_cgroup_id();
-		e->pid = bpf_get_current_pid_tgid() >> 32;
-		e->type = type_enum;
-		bpf_get_current_comm(&e->comm, sizeof(e->comm));
-		bpf_ringbuf_submit(e, 0);
-		return 0;
-	}
+#define TRACE_SYSCALL_SIMPLE(name, type_enum)                                  \
+    SEC("tracepoint/syscalls/sys_enter_" #name)                                \
+    int tracepoint__syscalls__sys_enter_##name(                                \
+        struct trace_event_raw_sys_enter *ctx) {                               \
+        struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);         \
+        if (!e) return 0;                                                      \
+        e->cgroup_id = bpf_get_current_cgroup_id();                            \
+        e->pid = bpf_get_current_pid_tgid() >> 32;                             \
+        e->type = type_enum;                                                   \
+        bpf_get_current_comm(&e->comm, sizeof(e->comm));                       \
+        bpf_ringbuf_submit(e, 0);                                              \
+        return 0;                                                              \
+    }
 
-// [추가] 파일 경로를 첫 번째 인자로 받는 시스템 콜을 위한 매크로
-#define TRACE_SYSCALL_FILENAME(name, type_enum)
-	SEC("tracepoint/syscalls/sys_enter_" #name)
-	int tracepoint__syscalls__sys_enter_##name(
-		struct trace_event_raw_sys_enter *ctx) {
-		struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
-		if (!e) return 0;
-		e->cgroup_id = bpf_get_current_cgroup_id();
-		e->pid = bpf_get_current_pid_tgid() >> 32;
-		e->type = type_enum;
-		bpf_get_current_comm(&e->comm, sizeof(e->comm));
-		bpf_probe_read_user_str(&e->args.filename, sizeof(e->args.filename),
-								(char *)ctx->args[0]);
-		bpf_ringbuf_submit(e, 0);
-		return 0;
-	}
+#define TRACE_SYSCALL_FILENAME(name, type_enum)                                \
+    SEC("tracepoint/syscalls/sys_enter_" #name)                                \
+    int tracepoint__syscalls__sys_enter_##name(                                \
+        struct trace_event_raw_sys_enter *ctx) {                               \
+        struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);         \
+        if (!e) return 0;                                                      \
+        e->cgroup_id = bpf_get_current_cgroup_id();                            \
+        e->pid = bpf_get_current_pid_tgid() >> 32;                             \
+        e->type = type_enum;                                                   \
+        bpf_get_current_comm(&e->comm, sizeof(e->comm));                       \
+        /* [수정] e->filename -> e->args.filename 으로 변경 */                 \
+        bpf_probe_read_user_str(&e->args.filename, sizeof(e->args.filename),   \
+                                (char *)ctx->args[0]);                         \
+        bpf_ringbuf_submit(e, 0);                                              \
+        return 0;                                                              \
+    }
 
 // --- 시스템 콜 핸들러 ---
 
