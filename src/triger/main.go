@@ -2,117 +2,147 @@ package main
 
 import (
 	"bufio"
-	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
+	"os/signal"
+	"regexp"
 	"strings"
-	"time"
-
-	"github.com/segmentio/kafka-go"
+	"sync"
+	"syscall"
 )
 
-type Event struct {
-    Timestamp   string `json:"timestamp"`
-    PID         int    `json:"pid"`
-    Path        string `json:"path"`
-    Node        string `json:"node"`
-    ContainerID string `json:"container_id,omitempty"`
-    Pod         string `json:"pod,omitempty"`
-    Namespace   string `json:"namespace,omitempty"`
-    Image       string `json:"image,omitempty"`
+// C 로더가 보내는 유연한 JSON 구조를 받기 위한 구조체
+// 필드가 없는 경우에도 파싱 에러가 나지 않도록 포인터와 omitempty 사용
+type EventLog struct {
+	Type      string  `json:"type"`
+	Pid       uint32  `json:"pid"`
+	Comm      string  `json:"comm"`
+	CgroupID  uint64  `json:"cgroup_id"`
+	Filename  *string `json:"filename,omitempty"`
+	ParentPid *uint32 `json:"parent_pid,omitempty"`
+	ChildPid  *uint32 `json:"child_pid,omitempty"`
+	Mode      *uint32 `json:"mode,omitempty"`
+	UID       *uint32 `json:"uid,omitempty"`
+	GID       *uint32 `json:"gid,omitempty"`
+}
+
+var cgroupCache = &sync.Map{}
+
+func getContainerInfo(cgroupId uint64, pid uint32) string {
+	// (이전과 동일, 수정 없음)
+	if cgroupId == 0 {
+		return "[Host Process]"
+	}
+	if cachedInfo, found := cgroupCache.Load(cgroupId); found {
+		return cachedInfo.(string)
+	}
+	cgroupPath := fmt.Sprintf("/proc/%d/cgroup", pid)
+	content, err := os.ReadFile(cgroupPath)
+	if err != nil {
+		if cachedInfo, found := cgroupCache.Load(cgroupId); found {
+			return cachedInfo.(string)
+		}
+		return "[Host Process]"
+	}
+	re := regexp.MustCompile(`.*/pod[a-f0-9\-]+/([a-f0-9]{64})`)
+	matches := re.FindStringSubmatch(string(content))
+	var containerInfo string
+	if len(matches) > 1 {
+		containerIdShort := matches[1][:12]
+		containerInfo = fmt.Sprintf("[Container: %s]", containerIdShort)
+	} else if strings.Contains(string(content), "docker") {
+		reDocker := regexp.MustCompile(`/docker/([a-f0-9]{64})`)
+		matchesDocker := reDocker.FindStringSubmatch(string(content))
+		if len(matchesDocker) > 1 {
+			containerIdShort := matchesDocker[1][:12]
+			containerInfo = fmt.Sprintf("[Container: %s]", containerIdShort)
+		} else {
+			containerInfo = "[Container: Unknown]"
+		}
+	} else {
+		containerInfo = "[Host Process]"
+	}
+	cgroupCache.Store(cgroupId, containerInfo)
+	return containerInfo
 }
 
 func main() {
-    // 현재 위치의 노드 이름 가져오기
-    hostname, err := os.Hostname()
-    if err != nil {
-        log.Fatalf("failed to get hostname: %v", err)
-    }
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 
-    // Kafka writer
-    writer := kafka.NewWriter(kafka.WriterConfig{
-        Brokers:  []string{"172.31.39.174:9092"},
-        Topic:    "ebpf-log",
-        Balancer: &kafka.LeastBytes{},
-    })
-    defer writer.Close()
+	cmd := exec.Command("../trace/loader")
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		log.Fatalf("StdoutPipe 생성 실패: %v", err)
+	}
+	cmd.Stderr = os.Stderr
 
-    // loader 파일 존재 확인
-    if _, err := os.Stat("../trace/loader"); os.IsNotExist(err) {
-        // 파일이 없으면 make 실행
-        cmdMake := exec.Command("make")
-        cmdMake.Dir = "../trace"
-        cmdMake.Stdout = os.Stdout
-        cmdMake.Stderr = os.Stderr
-        if err := cmdMake.Run(); err != nil {
-            log.Fatalf("failed to run make: %v", err)
-        }
-    }
+	if err := cmd.Start(); err != nil {
+		log.Fatalf("C 로더 프로그램 시작 실패: %v", err)
+	}
+	log.Println("eBPF C 로더를 시작했습니다. 이벤트 수신 대기 중...")
+	defer cmd.Process.Kill()
 
-    // 기존 loader 실행 코드
-    cmd := exec.Command("../trace/loader")
-    stdout, err := cmd.StdoutPipe()
-    if err != nil {
-        log.Fatalf("failed to get stdout: %v", err)
-    }
+	go func() {
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			var e EventLog
+			if err := json.Unmarshal(scanner.Bytes(), &e); err != nil {
+				log.Printf("JSON 파싱 에러: %v, 받은 데이터: %s", err, scanner.Text())
+				continue
+			}
 
-    if err := cmd.Start(); err != nil {
-        log.Fatalf("failed to start loader: %v", err)
-    }
+			containerContext := getContainerInfo(e.CgroupID, e.Pid)
+			logString := fmt.Sprintf("%-15s | %s | PID: %-6d | Comm: %-15s |", e.Type, containerContext, e.Pid, e.Comm)
 
-    scanner := bufio.NewScanner(stdout)
-    for scanner.Scan() {
-        line := scanner.Text()
+			// 이벤트 타입에 따라 상세 정보 추가
+			switch e.Type {
+			case "EXEC", "OPEN", "MOUNT":
+				if e.Filename != nil {
+					logString += fmt.Sprintf(" File: %s", *e.Filename)
+				}
+			case "FORK_CLONE":
+				if e.ParentPid != nil && e.ChildPid != nil {
+					logString += fmt.Sprintf(" Parent PID: %d -> Child PID: %d", *e.ParentPid, *e.ChildPid)
+				}
+			case "CHMOD":
+				details := ""
+				if e.Filename != nil {
+					details += fmt.Sprintf(" File: %s", *e.Filename)
+				}
+				if e.Mode != nil {
+					details += fmt.Sprintf(" Mode: %#o", *e.Mode)
+				}
+				logString += details
+			case "CHOWN":
+				details := ""
+				if e.Filename != nil {
+					details += fmt.Sprintf(" File: %s", *e.Filename)
+				}
+				if e.UID != nil {
+					details += fmt.Sprintf(" UID: %d", *e.UID)
+				}
+				if e.GID != nil {
+					details += fmt.Sprintf(" GID: %d", *e.GID)
+				}
+				logString += details
+			case "SETUID":
+				if e.UID != nil {
+					logString += fmt.Sprintf(" UID: %d", *e.UID)
+				}
+			case "SETGID":
+				if e.GID != nil {
+					logString += fmt.Sprintf(" GID: %d", *e.GID)
+				}
+				// READ, WRITE, PTRACE, CAPSET, UNSHARE, SETNS, MODULE, BPF 등은 추가 정보 없음
+			}
+			log.Println(logString)
+		}
+	}()
 
-        if !strings.Contains(line, "{") {
-            continue
-        }
-
-        var event Event
-        if err := json.Unmarshal([]byte(line), &event); err != nil {
-            log.Printf("invalid json: %s", line)
-            continue
-        }
-        event.Node = hostname
-        
-
-        // Insert dummy container metadata fields to simulate a resolved container context
-        event.ContainerID = "dummy-container-id"
-        event.Pod = "vex-oci-attach-846c94769d-cwgz9"
-        event.Namespace = "default"
-        event.Image = "ghcr.io/anchore/test-images/vex-oci-attach:51198f0"
-
-        // 현재 노드가 아니면 전송하지 않음
-        if event.Node != hostname {
-            continue
-        }
-
-        // cgroup 확인
-        // cgroupPath := fmt.Sprintf("/proc/%d/cgroup", event.PID)
-        // data, err := os.ReadFile(cgroupPath)
-        // if err != nil {
-        //     log.Printf("unable to read cgroup for pid %d: %v", event.PID, err)
-        //     continue
-        // }
-        // fmt.Printf("[DEBUG] cgroup for pid %d:\n%s\n", event.PID, string(data))
-        
-        msgBytes, _ := json.Marshal(event)
-            fmt.Println("[DEBUG] Sending to Kafka:", string(msgBytes))
-            
-            err = writer.WriteMessages(context.Background(),
-                kafka.Message{
-                    Key:   []byte(time.Now().Format(time.RFC3339Nano)),
-                    Value: msgBytes,
-                })
-            if err != nil {
-                log.Printf("failed to write to kafka: %v", err)
-            }
-    }
-
-    if err := cmd.Wait(); err != nil {
-        log.Fatalf("loader exited with error: %v", err)
-    }
+	<-sig
+	log.Println("\n프로그램을 종료합니다...")
 }
