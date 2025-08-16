@@ -41,9 +41,6 @@ type EventLog struct {
 var infoCache = &sync.Map{}
 
 // Pod UID를 추출하기 위한 정규식, cgroup v2 경로 형식에 맞춰 조정
-// main.go
-
-// [수정됨] 하이픈(-)과 언더스코어(_)를 모두 인식하는 새로운 정규식
 var podUIDRegex = regexp.MustCompile(`([a-f0-9]{8}[-_][a-f0-9]{4}[-_][a-f0-9]{4}[-_][a-f0-9]{4}[-_][a-f0-9]{12})`)
 
 // [수정됨] 새로운 정규식 및 UID 변환 로직이 적용된 getPodInfo 함수
