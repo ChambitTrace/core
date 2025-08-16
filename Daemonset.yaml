@@ -1,0 +1,59 @@
+# daemonset.yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: chambit-innodeagent  # 오류때문에 소문자로 변경
+  # RBAC에서 생성한 네임스페이스를 사용하는 것을 권장합니다.
+  namespace: monitor # diff: kube-system
+spec:
+  selector:
+    matchLabels:
+      app: chambit-innodeagent
+  template:
+    metadata:
+      labels:
+        app: chambit-innodeagent
+    spec:
+      # Pod 정보를 읽기 위해 RBAC에서 생성한 ServiceAccount를 지정해야 합니다.
+      serviceAccountName: ebpf-monitor-sa
+      hostPID: true
+      containers:
+      - name: chambit-innodeagent
+        # 빌드한 실제 이미지 주소로 변경해야 합니다.
+        image: ghcr.io/chambittrace/core:v1.0.4
+        securityContext:
+          privileged: true
+          capabilities:
+            add: ['SYS_ADMIN', 'SYS_RESOURCE']
+        volumeMounts:
+        # getPodInfo 함수가 /proc/<pid>/cgroup을 읽기 위해 반드시 필요합니다.
+        - name: proc
+          mountPath: /proc
+          readOnly: true
+        - name: bpf
+          mountPath: /sys/fs/bpf
+        - name: modules
+          mountPath: /lib/modules
+          readOnly: true
+        - name: debugfs
+          mountPath: /sys/kernel/debug
+          # - name: log
+          #  mountPath: /host/var/log
+
+      volumes:
+      # /proc 마운트를 위한 볼륨 정의
+      - name: proc
+        hostPath:
+          path: /proc
+      - name: bpf
+        hostPath:
+          path: /sys/fs/bpf
+      - name: modules
+        hostPath:
+          path: /lib/modules
+      - name: debugfs
+        hostPath:
+          path: /sys/kernel/debug
+        # - name: log
+        # hostPath:
+        #  path: /var/log

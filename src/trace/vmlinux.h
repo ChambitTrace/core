@@ -14,7 +14,7 @@
 #endif
 
 #ifndef __bpf_fastcall
-#if __has_attribute(bpf_fastcall) 
+#if __has_attribute(bpf_fastcall)
 #define __bpf_fastcall __attribute__((bpf_fastcall))
 #else
 #define __bpf_fastcall
