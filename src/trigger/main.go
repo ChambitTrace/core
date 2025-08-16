@@ -21,6 +21,8 @@ import (
 	corev1listers "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
+
+	"github.com/segmentio/kafka-go"
 )
 
 // C 로더가 보내는 유연한 JSON 구조를 받기 위한 구조체
@@ -35,6 +37,13 @@ type EventLog struct {
 	Mode      *uint32 `json:"mode,omitempty"`
 	UID       *uint32 `json:"uid,omitempty"`
 	GID       *uint32 `json:"gid,omitempty"`
+}
+
+// Kafka로 보낼 EnrichedEventLog 구조체
+type EnrichedEventLog struct {
+	EventLog
+	PodContext string `json:"pod_context"`
+	Timestamp  string `json:"timestamp"`
 }
 
 // cgroup ID를 키로 사용하여 Pod 정보를 캐싱
@@ -114,7 +123,24 @@ func main() {
 		log.Fatalf("Timed out waiting for caches to sync")
 	}
 	log.Println("Informer caches synced successfully.")
-	// --- 설정 완료 ---
+	
+	// --- Kafka Writer 설정  ---
+	kafkaBrokers := os.Getenv("KAFKA_BROKERS")
+	kafkaTopic := os.Getenv("KAFKA_TOPIC")
+	if kafkaBrokers == "" || kafkaTopic == "" {
+		log.Fatalf("KAFKA_BROKERS and KAFKA_TOPIC environment variables must be set")
+	}
+	writer := kafka.NewWriter(kafka.WriterConfig{
+		Brokers:  strings.Split(kafkaBrokers, ","),
+		Topic:    kafkaTopic,
+		Balancer: &kafka.LeastBytes{},
+		// 배치 전송을 위해 Kafka 클라이언트 내부 옵션을 조정할 수 있습니다.
+		BatchSize:    100, // 배치 크기. 로그가 100개 모이면 전송
+		BatchTimeout: 1 * time.Second, /// 배치 타임아웃. 1초마다 전송 시도
+	})
+	defer writer.Close()
+	log.Printf("Kafka writer configured for topic '%s' on brokers: %s", kafkaTopic, kafkaBrokers)
+	
 
 	cmd := exec.Command("../trace/loader")
 	stdout, err := cmd.StdoutPipe()
@@ -129,64 +155,82 @@ func main() {
 	log.Println("eBPF C 로더를 시작했습니다. 이벤트 수신 대기 중...")
 	defer cmd.Process.Kill()
 
+	// 이벤트 처리 로직을 배치 방식으로 변경합니다.
 	go func() {
 		scanner := bufio.NewScanner(stdout)
-		for scanner.Scan() {
-			var e EventLog
-			if err := json.Unmarshal(scanner.Bytes(), &e); err != nil {
-				log.Printf("JSON 파싱 에러: %v, 받은 데이터: %s", err, scanner.Text())
-				continue
+		
+		const batchSize = 100
+		flushFrequency := 1 * time.Second
+		
+		var messageBatch []kafka.Message
+		ticker := time.NewTicker(flushFrequency)
+
+		flushBatch := func() {
+			if len(messageBatch) == 0 {
+				return
+			}
+			err := writer.WriteMessages(context.Background(), messageBatch...)
+			if err != nil {
+				log.Printf("Failed to write %d messages to Kafka: %v", len(messageBatch), err)
+			} else {
+				log.Printf("Successfully wrote %d messages to Kafka.", len(messageBatch))
+			}
+			messageBatch = nil // 배치 초기화
+		}
+
+		defer ticker.Stop()
+
+		for {
+			// Non-blocking scan attempt
+			if scanner.Scan() {
+				var e EventLog
+				if err := json.Unmarshal(scanner.Bytes(), &e); err != nil {
+					log.Printf("JSON parsing error: %v, received data: %s", err, scanner.Text())
+					continue
+				}
+
+				podContext := getPodInfo(podLister, e.CgroupID, e.Pid)
+				enrichedLog := EnrichedEventLog{
+					EventLog:   e,
+					PodContext: podContext,
+					Timestamp:  time.Now().UTC().Format(time.RFC3339),
+				}
+				jsonData, err := json.Marshal(enrichedLog)
+				if err != nil {
+					log.Printf("JSON marshalling error: %v", err)
+					continue
+				}
+
+				messageBatch = append(messageBatch, kafka.Message{Value: jsonData})
+				
+				// 콘솔에는 즉시 출력하여 실시간 확인 가능
+				logString := fmt.Sprintf("%-15s | %-40s | PID: %-6d | Comm: %-15s", enrichedLog.Type, enrichedLog.PodContext, enrichedLog.Pid, enrichedLog.Comm)
+				log.Println(logString)
+
+				if len(messageBatch) >= batchSize {
+					flushBatch()
+					// 타이머를 리셋하여 불필요한 즉시 flush 방지
+					ticker.Reset(flushFrequency)
+				}
+			} else {
+				// 스캐너가 멈췄을 때(EOF 또는 에러)
+				flushBatch()
+				if err := scanner.Err(); err != nil {
+					log.Printf("Error reading from scanner: %v", err)
+				}
+				return
 			}
 
-			podContext := getPodInfo(podLister, e.CgroupID, e.Pid)
-
-			logString := fmt.Sprintf("%-15s | %-40s | PID: %-6d | Comm: %-15s |", e.Type, podContext, e.Pid, e.Comm)
-
-			// 이벤트 타입에 따라 상세 정보 추가
-			switch e.Type {
-			case "EXEC", "OPEN", "MOUNT":
-				if e.Filename != nil {
-					logString += fmt.Sprintf(" File: %s", *e.Filename)
-				}
-			case "FORK_CLONE":
-				if e.ParentPid != nil && e.ChildPid != nil {
-					logString += fmt.Sprintf(" Parent PID: %d -> Child PID: %d", *e.ParentPid, *e.ChildPid)
-				}
-			case "CHMOD":
-				details := ""
-				if e.Filename != nil {
-					details += fmt.Sprintf(" File: %s", *e.Filename)
-				}
-				if e.Mode != nil {
-					details += fmt.Sprintf(" Mode: %#o", *e.Mode)
-				}
-				logString += details
-			case "CHOWN":
-				details := ""
-				if e.Filename != nil {
-					details += fmt.Sprintf(" File: %s", *e.Filename)
-				}
-				if e.UID != nil {
-					details += fmt.Sprintf(" UID: %d", *e.UID)
-				}
-				if e.GID != nil {
-					details += fmt.Sprintf(" GID: %d", *e.GID)
-				}
-				logString += details
-			case "SETUID":
-				if e.UID != nil {
-					logString += fmt.Sprintf(" UID: %d", *e.UID)
-				}
-			case "SETGID":
-				if e.GID != nil {
-					logString += fmt.Sprintf(" GID: %d", *e.GID)
-				}
+			// Check for timeout flush
+			select {
+			case <-ticker.C:
+				flushBatch()
+			default:
+				// non-blocking
 			}
-			
-			log.Println(logString)
 		}
 	}()
-
+	
 	<-sig
 	log.Println("\n프로그램을 종료합니다...")
 }
