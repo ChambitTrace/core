@@ -1,0 +1,434 @@
+.
+├── Daemonset.yaml
+├── Dockerfile
+├── LICENSE
+├── README.md
+├── external
+│   ├── bpftool
+│   │   ├── BPF-CHECKPOINT-COMMIT
+│   │   ├── CHECKPOINT-COMMIT
+│   │   ├── Dockerfile
+│   │   ├── LICENSE
+│   │   ├── LICENSE.BSD-2-Clause
+│   │   ├── LICENSE.GPL-2.0
+│   │   ├── README.md
+│   │   ├── bash-completion
+│   │   │   └── bpftool
+│   │   ├── docs
+│   │   │   ├── Makefile
+│   │   │   ├── bpftool-btf.rst
+│   │   │   ├── bpftool-cgroup.rst
+│   │   │   ├── bpftool-feature.rst
+│   │   │   ├── bpftool-gen.rst
+│   │   │   ├── bpftool-iter.rst
+│   │   │   ├── bpftool-link.rst
+│   │   │   ├── bpftool-map.rst
+│   │   │   ├── bpftool-net.rst
+│   │   │   ├── bpftool-perf.rst
+│   │   │   ├── bpftool-prog.rst
+│   │   │   ├── bpftool-struct_ops.rst
+│   │   │   ├── bpftool.rst
+│   │   │   ├── common_options.rst
+│   │   │   └── substitutions.rst
+│   │   ├── include
+│   │   │   ├── linux
+│   │   │   │   ├── bitops.h
+│   │   │   │   ├── build_bug.h
+│   │   │   │   ├── compiler-gcc.h
+│   │   │   │   ├── compiler.h
+│   │   │   │   ├── compiler_types.h
+│   │   │   │   ├── err.h
+│   │   │   │   ├── filter.h
+│   │   │   │   ├── kernel.h
+│   │   │   │   ├── list.h
+│   │   │   │   ├── sizes.h
+│   │   │   │   ├── stringify.h
+│   │   │   │   └── types.h
+│   │   │   ├── tools
+│   │   │   │   └── dis-asm-compat.h
+│   │   │   └── uapi
+│   │   │       ├── asm-generic
+│   │   │       │   └── bitsperlong.h
+│   │   │       └── linux
+│   │   │           ├── bpf.h
+│   │   │           ├── bpf_common.h
+│   │   │           ├── btf.h
+│   │   │           ├── const.h
+│   │   │           ├── if_link.h
+│   │   │           ├── netlink.h
+│   │   │           ├── perf_event.h
+│   │   │           ├── pkt_cls.h
+│   │   │           ├── pkt_sched.h
+│   │   │           └── tc_act
+│   │   │               └── tc_bpf.h
+│   │   ├── libbpf
+│   │   │   ├── BPF-CHECKPOINT-COMMIT
+│   │   │   ├── CHECKPOINT-COMMIT
+│   │   │   ├── LICENSE
+│   │   │   ├── LICENSE.BSD-2-Clause
+│   │   │   ├── LICENSE.LGPL-2.1
+│   │   │   ├── README.md
+│   │   │   ├── SYNC.md
+│   │   │   ├── assets
+│   │   │   │   ├── libbpf-logo-compact-darkbg.png
+│   │   │   │   ├── libbpf-logo-compact-mono.png
+│   │   │   │   ├── libbpf-logo-compact.png
+│   │   │   │   ├── libbpf-logo-sideways-darkbg.png
+│   │   │   │   ├── libbpf-logo-sideways-mono.png
+│   │   │   │   ├── libbpf-logo-sideways.png
+│   │   │   │   ├── libbpf-logo-sparse-darkbg.png
+│   │   │   │   ├── libbpf-logo-sparse-mono.png
+│   │   │   │   └── libbpf-logo-sparse.png
+│   │   │   ├── ci
+│   │   │   │   ├── build-in-docker.sh
+│   │   │   │   ├── diffs
+│   │   │   │   │   ├── 0001-selftests-bpf-set-test-path-for-token-obj_priv_impli.patch
+│   │   │   │   │   ├── 4000-selftests-bpf-Fix-tests-after-fields-reorder-in-stru.patch
+│   │   │   │   │   ├── 4001-selftests-bpf-Fix-verifier_bpf_fastcall-test.patch
+│   │   │   │   │   └── 4002-selftests-bpf-Fix-verifier_private_stack-test-failur.patch
+│   │   │   │   ├── managers
+│   │   │   │   │   ├── debian.sh
+│   │   │   │   │   ├── test_compile.sh
+│   │   │   │   │   ├── travis_wait.bash
+│   │   │   │   │   └── ubuntu.sh
+│   │   │   │   └── vmtest
+│   │   │   │       └── configs
+│   │   │   │           ├── DENYLIST
+│   │   │   │           ├── DENYLIST-latest
+│   │   │   │           ├── DENYLIST-latest.s390x
+│   │   │   │           └── run-vmtest.env
+│   │   │   ├── docs
+│   │   │   │   ├── api.rst
+│   │   │   │   ├── conf.py
+│   │   │   │   ├── index.rst
+│   │   │   │   ├── libbpf_build.rst
+│   │   │   │   ├── libbpf_naming_convention.rst
+│   │   │   │   ├── libbpf_overview.rst
+│   │   │   │   ├── program_types.rst
+│   │   │   │   └── sphinx
+│   │   │   │       ├── Makefile
+│   │   │   │       ├── doxygen
+│   │   │   │       │   └── Doxyfile
+│   │   │   │       └── requirements.txt
+│   │   │   ├── fuzz
+│   │   │   │   ├── bpf-object-fuzzer.c
+│   │   │   │   └── bpf-object-fuzzer_seed_corpus.zip
+│   │   │   ├── include
+│   │   │   │   ├── asm
+│   │   │   │   │   └── barrier.h
+│   │   │   │   ├── linux
+│   │   │   │   │   ├── compiler.h
+│   │   │   │   │   ├── err.h
+│   │   │   │   │   ├── filter.h
+│   │   │   │   │   ├── kernel.h
+│   │   │   │   │   ├── list.h
+│   │   │   │   │   ├── overflow.h
+│   │   │   │   │   ├── ring_buffer.h
+│   │   │   │   │   └── types.h
+│   │   │   │   └── uapi
+│   │   │   │       └── linux
+│   │   │   │           ├── bpf.h
+│   │   │   │           ├── bpf_common.h
+│   │   │   │           ├── btf.h
+│   │   │   │           ├── if_link.h
+│   │   │   │           ├── if_xdp.h
+│   │   │   │           ├── netdev.h
+│   │   │   │           ├── netlink.h
+│   │   │   │           ├── perf_event.h
+│   │   │   │           ├── pkt_cls.h
+│   │   │   │           └── pkt_sched.h
+│   │   │   ├── scripts
+│   │   │   │   ├── build-fuzzers.sh
+│   │   │   │   ├── coverity.sh
+│   │   │   │   ├── mailmap-update.sh
+│   │   │   │   └── sync-kernel.sh
+│   │   │   └── src
+│   │   │       ├── Makefile
+│   │   │       ├── bpf.c
+│   │   │       ├── bpf.h
+│   │   │       ├── bpf_core_read.h
+│   │   │       ├── bpf_endian.h
+│   │   │       ├── bpf_gen_internal.h
+│   │   │       ├── bpf_helper_defs.h
+│   │   │       ├── bpf_helpers.h
+│   │   │       ├── bpf_prog_linfo.c
+│   │   │       ├── bpf_tracing.h
+│   │   │       ├── btf.c
+│   │   │       ├── btf.h
+│   │   │       ├── btf_dump.c
+│   │   │       ├── btf_iter.c
+│   │   │       ├── btf_relocate.c
+│   │   │       ├── elf.c
+│   │   │       ├── features.c
+│   │   │       ├── gen_loader.c
+│   │   │       ├── hashmap.c
+│   │   │       ├── hashmap.h
+│   │   │       ├── libbpf.c
+│   │   │       ├── libbpf.h
+│   │   │       ├── libbpf.map
+│   │   │       ├── libbpf.pc.template
+│   │   │       ├── libbpf_common.h
+│   │   │       ├── libbpf_errno.c
+│   │   │       ├── libbpf_internal.h
+│   │   │       ├── libbpf_legacy.h
+│   │   │       ├── libbpf_probes.c
+│   │   │       ├── libbpf_version.h
+│   │   │       ├── linker.c
+│   │   │       ├── netlink.c
+│   │   │       ├── nlattr.c
+│   │   │       ├── nlattr.h
+│   │   │       ├── relo_core.c
+│   │   │       ├── relo_core.h
+│   │   │       ├── ringbuf.c
+│   │   │       ├── skel_internal.h
+│   │   │       ├── str_error.c
+│   │   │       ├── str_error.h
+│   │   │       ├── strset.c
+│   │   │       ├── strset.h
+│   │   │       ├── usdt.bpf.h
+│   │   │       ├── usdt.c
+│   │   │       ├── zip.c
+│   │   │       └── zip.h
+│   │   ├── scripts
+│   │   │   ├── README.md
+│   │   │   ├── gh-label-release-assets.sh
+│   │   │   ├── mailmap-update.sh
+│   │   │   ├── sync-kernel-expected-diff.patch
+│   │   │   └── sync-kernel.sh
+│   │   └── src
+│   │       ├── Makefile
+│   │       ├── Makefile.feature
+│   │       ├── Makefile.include
+│   │       ├── btf.c
+│   │       ├── btf_dumper.c
+│   │       ├── cfg.c
+│   │       ├── cfg.h
+│   │       ├── cgroup.c
+│   │       ├── common.c
+│   │       ├── feature.c
+│   │       ├── gen.c
+│   │       ├── iter.c
+│   │       ├── jit_disasm.c
+│   │       ├── json_writer.c
+│   │       ├── json_writer.h
+│   │       ├── kernel
+│   │       │   └── bpf
+│   │       │       ├── disasm.c
+│   │       │       └── disasm.h
+│   │       ├── link.c
+│   │       ├── main.c
+│   │       ├── main.h
+│   │       ├── map.c
+│   │       ├── map_perf_ring.c
+│   │       ├── net.c
+│   │       ├── netlink_dumper.c
+│   │       ├── netlink_dumper.h
+│   │       ├── perf.c
+│   │       ├── pids.c
+│   │       ├── prog.c
+│   │       ├── skeleton
+│   │       │   ├── pid_iter.bpf.c
+│   │       │   ├── pid_iter.h
+│   │       │   └── profiler.bpf.c
+│   │       ├── struct_ops.c
+│   │       ├── tracelog.c
+│   │       ├── xlated_dumper.c
+│   │       └── xlated_dumper.h
+│   └── libbpf
+│       ├── BPF-CHECKPOINT-COMMIT
+│       ├── CHECKPOINT-COMMIT
+│       ├── LICENSE
+│       ├── LICENSE.BSD-2-Clause
+│       ├── LICENSE.LGPL-2.1
+│       ├── README.md
+│       ├── SYNC.md
+│       ├── assets
+│       │   ├── libbpf-logo-compact-darkbg.png
+│       │   ├── libbpf-logo-compact-mono.png
+│       │   ├── libbpf-logo-compact.png
+│       │   ├── libbpf-logo-sideways-darkbg.png
+│       │   ├── libbpf-logo-sideways-mono.png
+│       │   ├── libbpf-logo-sideways.png
+│       │   ├── libbpf-logo-sparse-darkbg.png
+│       │   ├── libbpf-logo-sparse-mono.png
+│       │   └── libbpf-logo-sparse.png
+│       ├── ci
+│       │   ├── build-in-docker.sh
+│       │   ├── diffs
+│       │   │   ├── 0001-selftests-bpf-set-test-path-for-token-obj_priv_impli.patch
+│       │   │   ├── 4000-selftests-bpf-Fix-tests-after-fields-reorder-in-stru.patch
+│       │   │   ├── 4001-selftests-bpf-Fix-verifier_bpf_fastcall-test.patch
+│       │   │   └── 4002-selftests-bpf-Fix-verifier_private_stack-test-failur.patch
+│       │   ├── managers
+│       │   │   ├── debian.sh
+│       │   │   ├── test_compile.sh
+│       │   │   ├── travis_wait.bash
+│       │   │   └── ubuntu.sh
+│       │   └── vmtest
+│       │       └── configs
+│       │           ├── DENYLIST
+│       │           ├── DENYLIST-latest
+│       │           ├── DENYLIST-latest.s390x
+│       │           └── run-vmtest.env
+│       ├── docs
+│       │   ├── api.rst
+│       │   ├── conf.py
+│       │   ├── index.rst
+│       │   ├── libbpf_build.rst
+│       │   ├── libbpf_naming_convention.rst
+│       │   ├── libbpf_overview.rst
+│       │   ├── program_types.rst
+│       │   └── sphinx
+│       │       ├── Makefile
+│       │       ├── doxygen
+│       │       │   └── Doxyfile
+│       │       └── requirements.txt
+│       ├── fuzz
+│       │   ├── bpf-object-fuzzer.c
+│       │   └── bpf-object-fuzzer_seed_corpus.zip
+│       ├── include
+│       │   ├── asm
+│       │   │   └── barrier.h
+│       │   ├── linux
+│       │   │   ├── compiler.h
+│       │   │   ├── err.h
+│       │   │   ├── filter.h
+│       │   │   ├── kernel.h
+│       │   │   ├── list.h
+│       │   │   ├── overflow.h
+│       │   │   ├── ring_buffer.h
+│       │   │   └── types.h
+│       │   └── uapi
+│       │       └── linux
+│       │           ├── bpf.h
+│       │           ├── bpf_common.h
+│       │           ├── btf.h
+│       │           ├── if_link.h
+│       │           ├── if_xdp.h
+│       │           ├── netdev.h
+│       │           ├── netlink.h
+│       │           ├── perf_event.h
+│       │           ├── pkt_cls.h
+│       │           └── pkt_sched.h
+│       ├── scripts
+│       │   ├── build-fuzzers.sh
+│       │   ├── coverity.sh
+│       │   ├── mailmap-update.sh
+│       │   └── sync-kernel.sh
+│       └── src
+│           ├── Makefile
+│           ├── bpf.c
+│           ├── bpf.h
+│           ├── bpf_core_read.h
+│           ├── bpf_endian.h
+│           ├── bpf_gen_internal.h
+│           ├── bpf_helper_defs.h
+│           ├── bpf_helpers.h
+│           ├── bpf_prog_linfo.c
+│           ├── bpf_tracing.h
+│           ├── btf.c
+│           ├── btf.h
+│           ├── btf_dump.c
+│           ├── btf_iter.c
+│           ├── btf_relocate.c
+│           ├── elf.c
+│           ├── features.c
+│           ├── gen_loader.c
+│           ├── hashmap.c
+│           ├── hashmap.h
+│           ├── libbpf.a
+│           ├── libbpf.c
+│           ├── libbpf.h
+│           ├── libbpf.map
+│           ├── libbpf.pc
+│           ├── libbpf.pc.template
+│           ├── libbpf.so -> libbpf.so.1
+│           ├── libbpf.so.1 -> libbpf.so.1.6.0
+│           ├── libbpf.so.1.6.0
+│           ├── libbpf_common.h
+│           ├── libbpf_errno.c
+│           ├── libbpf_internal.h
+│           ├── libbpf_legacy.h
+│           ├── libbpf_probes.c
+│           ├── libbpf_version.h
+│           ├── linker.c
+│           ├── netlink.c
+│           ├── nlattr.c
+│           ├── nlattr.h
+│           ├── relo_core.c
+│           ├── relo_core.h
+│           ├── ringbuf.c
+│           ├── sharedobjs
+│           │   ├── bpf.o
+│           │   ├── bpf_prog_linfo.o
+│           │   ├── btf.o
+│           │   ├── btf_dump.o
+│           │   ├── btf_iter.o
+│           │   ├── btf_relocate.o
+│           │   ├── elf.o
+│           │   ├── features.o
+│           │   ├── gen_loader.o
+│           │   ├── hashmap.o
+│           │   ├── libbpf.o
+│           │   ├── libbpf_errno.o
+│           │   ├── libbpf_probes.o
+│           │   ├── linker.o
+│           │   ├── netlink.o
+│           │   ├── nlattr.o
+│           │   ├── relo_core.o
+│           │   ├── ringbuf.o
+│           │   ├── str_error.o
+│           │   ├── strset.o
+│           │   ├── usdt.o
+│           │   └── zip.o
+│           ├── skel_internal.h
+│           ├── staticobjs
+│           │   ├── bpf.o
+│           │   ├── bpf_prog_linfo.o
+│           │   ├── btf.o
+│           │   ├── btf_dump.o
+│           │   ├── btf_iter.o
+│           │   ├── btf_relocate.o
+│           │   ├── elf.o
+│           │   ├── features.o
+│           │   ├── gen_loader.o
+│           │   ├── hashmap.o
+│           │   ├── libbpf.o
+│           │   ├── libbpf_errno.o
+│           │   ├── libbpf_probes.o
+│           │   ├── linker.o
+│           │   ├── netlink.o
+│           │   ├── nlattr.o
+│           │   ├── relo_core.o
+│           │   ├── ringbuf.o
+│           │   ├── str_error.o
+│           │   ├── strset.o
+│           │   ├── usdt.o
+│           │   └── zip.o
+│           ├── str_error.c
+│           ├── str_error.h
+│           ├── strset.c
+│           ├── strset.h
+│           ├── usdt.bpf.h
+│           ├── usdt.c
+│           ├── zip.c
+│           └── zip.h
+├── go.mod
+├── go.sum
+├── rbac.yaml
+├── runtimeAgent.yaml
+├── src
+│   ├── trace
+│   │   ├── Makefile
+│   │   ├── event.h
+│   │   ├── loader
+│   │   ├── loader.c
+│   │   ├── trace.bpf.c
+│   │   ├── trace.bpf.o
+│   │   ├── trace.skel.h
+│   │   └── vmlinux.h
+│   └── triger
+│       └── main.go
+└── tree.txt
+
+58 directories, 374 files
