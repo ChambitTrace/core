@@ -21,6 +21,12 @@ spec:
       - name: chambit-innodeagent
         # 빌드한 실제 이미지 주소로 변경해야 합니다.
         image: ghcr.io/chambittrace/core:v1.0.4
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: KAFKA_BROKERS
+          value: "kafka.monitor.svc.cluster.local:9092"
+        - name: KAFKA_TOPIC
+          value: "chambit-ebpf-events"
         securityContext:
           privileged: true
           capabilities:

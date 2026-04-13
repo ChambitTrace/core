@@ -1,3 +1,11 @@
+FROM golang:1.24-bookworm AS gobuilder
+
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY src/trigger/main.go /app/src/trigger/main.go
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/main /app/src/trigger/main.go
+
 FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -23,6 +31,7 @@ WORKDIR /app
 
 # 3. 전체 프로젝트 복사
 COPY . .
+COPY --from=gobuilder /out/main /app/src/trigger/main
 
 # bpftool (submodule)
 RUN cd /app/external/bpftool/src && make && cp bpftool /usr/local/bin/

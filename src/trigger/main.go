@@ -27,11 +27,11 @@ import (
 
 // C 로더가 보내는 유연한 JSON 구조를 받기 위한 구조체
 type EventLog struct {
-	Type     string  `json:"type"`
-	Pid      uint32  `json:"pid"`
-	Comm     string  `json:"comm"`
-	CgroupID uint64  `json:"cgroup_id"`
-	Filename *string `json:"filename,omitempty"`
+	Type      string  `json:"type"`
+	Pid       uint32  `json:"pid"`
+	Comm      string  `json:"comm"`
+	CgroupID  uint64  `json:"cgroup_id"`
+	Filename  *string `json:"filename,omitempty"`
 	ParentPid *uint32 `json:"parent_pid,omitempty"`
 	ChildPid  *uint32 `json:"child_pid,omitempty"`
 	Mode      *uint32 `json:"mode,omitempty"`
@@ -91,7 +91,7 @@ func getPodInfo(podLister corev1listers.PodLister, cgroupID uint64, pid uint32) 
 			break
 		}
 	}
-	
+
 	infoCache.Store(cgroupID, podInfo)
 	return podInfo
 }
@@ -123,24 +123,26 @@ func main() {
 		log.Fatalf("Timed out waiting for caches to sync")
 	}
 	log.Println("Informer caches synced successfully.")
-	
+
 	// --- Kafka Writer 설정  ---
 	kafkaBrokers := os.Getenv("KAFKA_BROKERS")
 	kafkaTopic := os.Getenv("KAFKA_TOPIC")
-	if kafkaBrokers == "" || kafkaTopic == "" {
-		log.Fatalf("KAFKA_BROKERS and KAFKA_TOPIC environment variables must be set")
+	var writer *kafka.Writer
+	kafkaEnabled := kafkaBrokers != "" && kafkaTopic != ""
+	if kafkaEnabled {
+		writer = kafka.NewWriter(kafka.WriterConfig{
+			Brokers:  strings.Split(kafkaBrokers, ","),
+			Topic:    kafkaTopic,
+			Balancer: &kafka.LeastBytes{},
+			// 배치 전송을 위해 Kafka 클라이언트 내부 옵션을 조정할 수 있습니다.
+			BatchSize:    100,             // 배치 크기. 로그가 100개 모이면 전송
+			BatchTimeout: 1 * time.Second, /// 배치 타임아웃. 1초마다 전송 시도
+		})
+		defer writer.Close()
+		log.Printf("Kafka writer configured for topic '%s' on brokers: %s", kafkaTopic, kafkaBrokers)
+	} else {
+		log.Printf("Kafka disabled: set both KAFKA_BROKERS and KAFKA_TOPIC to enable forwarding")
 	}
-	writer := kafka.NewWriter(kafka.WriterConfig{
-		Brokers:  strings.Split(kafkaBrokers, ","),
-		Topic:    kafkaTopic,
-		Balancer: &kafka.LeastBytes{},
-		// 배치 전송을 위해 Kafka 클라이언트 내부 옵션을 조정할 수 있습니다.
-		BatchSize:    100, // 배치 크기. 로그가 100개 모이면 전송
-		BatchTimeout: 1 * time.Second, /// 배치 타임아웃. 1초마다 전송 시도
-	})
-	defer writer.Close()
-	log.Printf("Kafka writer configured for topic '%s' on brokers: %s", kafkaTopic, kafkaBrokers)
-	
 
 	cmd := exec.Command("../trace/loader")
 	stdout, err := cmd.StdoutPipe()
@@ -158,15 +160,15 @@ func main() {
 	// 이벤트 처리 로직을 배치 방식으로 변경합니다.
 	go func() {
 		scanner := bufio.NewScanner(stdout)
-		
+
 		const batchSize = 100
 		flushFrequency := 1 * time.Second
-		
+
 		var messageBatch []kafka.Message
 		ticker := time.NewTicker(flushFrequency)
 
 		flushBatch := func() {
-			if len(messageBatch) == 0 {
+			if !kafkaEnabled || len(messageBatch) == 0 {
 				return
 			}
 			err := writer.WriteMessages(context.Background(), messageBatch...)
@@ -195,19 +197,20 @@ func main() {
 					PodContext: podContext,
 					Timestamp:  time.Now().UTC().Format(time.RFC3339),
 				}
-				jsonData, err := json.Marshal(enrichedLog)
-				if err != nil {
-					log.Printf("JSON marshalling error: %v", err)
-					continue
+				if kafkaEnabled {
+					jsonData, err := json.Marshal(enrichedLog)
+					if err != nil {
+						log.Printf("JSON marshalling error: %v", err)
+						continue
+					}
+					messageBatch = append(messageBatch, kafka.Message{Value: jsonData})
 				}
 
-				messageBatch = append(messageBatch, kafka.Message{Value: jsonData})
-				
 				// 콘솔에는 즉시 출력하여 실시간 확인 가능
 				logString := fmt.Sprintf("%-15s | %-40s | PID: %-6d | Comm: %-15s", enrichedLog.Type, enrichedLog.PodContext, enrichedLog.Pid, enrichedLog.Comm)
 				log.Println(logString)
 
-				if len(messageBatch) >= batchSize {
+				if kafkaEnabled && len(messageBatch) >= batchSize {
 					flushBatch()
 					// 타이머를 리셋하여 불필요한 즉시 flush 방지
 					ticker.Reset(flushFrequency)
@@ -230,7 +233,7 @@ func main() {
 			}
 		}
 	}()
-	
+
 	<-sig
 	log.Println("\n프로그램을 종료합니다...")
 }
