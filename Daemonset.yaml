@@ -4,11 +4,12 @@ metadata:
   name: chambit-agent-config
   namespace: monitor
 data:
-  # Kafka VM의 LAN 주소를 우선 사용하세요. 필요 시 tailscale 주소를 콤마로 추가할 수 있습니다.
-  # 예) 192.168.200.50:9092,100.88.10.20:9092
-  KAFKA_BROKERS: "192.168.200.50:9092"
+  # Kafka가 맥미니 Docker에서 실행 중이면 맥미니의 LAN IP를 사용하세요.
+  # 현재 예시: 192.168.200.178:9092
+  # 필요 시 tailscale 주소를 콤마로 추가할 수 있습니다.
+  KAFKA_BROKERS: "192.168.200.178:9092"
   KAFKA_TOPIC: "chambit-ebpf-events"
-  CLUSTER_NAME: "homelab-k3s"
+  CLUSTER_NAME: "proxmox-k8s"
   KAFKA_BATCH_SIZE: "100"
   KAFKA_BATCH_TIMEOUT_MS: "1000"
   KAFKA_WRITE_TIMEOUT_MS: "5000"
@@ -29,6 +30,9 @@ spec:
     spec:
       serviceAccountName: ebpf-monitor-sa
       hostPID: true
+      nodeSelector:
+        kubernetes.io/os: linux
+        kubernetes.io/arch: amd64
       tolerations:
       - key: node-role.kubernetes.io/control-plane
         operator: Exists

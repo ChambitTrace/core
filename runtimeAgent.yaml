@@ -1,20 +1,68 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitor
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ebpf-monitor-sa
+  namespace: monitor
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: pod-reader-role
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ebpf-monitor-binding
+subjects:
+- kind: ServiceAccount
+  name: ebpf-monitor-sa
+  namespace: monitor
+roleRef:
+  kind: ClusterRole
+  name: pod-reader-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chambit-agent-config
+  namespace: monitor
+data:
+  KAFKA_BROKERS: "192.168.200.178:9092"
+  KAFKA_TOPIC: "chambit-ebpf-events"
+  CLUSTER_NAME: "proxmox-k8s"
+  KAFKA_BATCH_SIZE: "100"
+  KAFKA_BATCH_TIMEOUT_MS: "1000"
+  KAFKA_WRITE_TIMEOUT_MS: "5000"
+---
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: chambit-agent
-  namespace: kube-system
+  name: chambit-innodeagent
+  namespace: monitor
 spec:
   selector:
     matchLabels:
-      app: chambit-agent
+      app: chambit-innodeagent
   template:
     metadata:
       labels:
-        app: chambit-agent
+        app: chambit-innodeagent
     spec:
-      imagePullSecrets:
-      - name: chambit-ghcr-secret
+      serviceAccountName: ebpf-monitor-sa
       hostPID: true
+      nodeSelector:
+        kubernetes.io/os: linux
+        kubernetes.io/arch: amd64
       tolerations:
       - key: node-role.kubernetes.io/control-plane
         operator: Exists
@@ -23,22 +71,13 @@ spec:
         operator: Exists
         effect: NoSchedule
       containers:
-      - name: chambit-agent
+      - name: chambit-innodeagent
         image: ghcr.io/chambittrace/core:v1.0.4
         imagePullPolicy: IfNotPresent
+        envFrom:
+        - configMapRef:
+            name: chambit-agent-config
         env:
-        - name: KAFKA_BROKERS
-          value: "192.168.200.50:9092"
-        - name: KAFKA_TOPIC
-          value: "chambit-ebpf-events"
-        - name: CLUSTER_NAME
-          value: "homelab-k3s"
-        - name: KAFKA_BATCH_SIZE
-          value: "100"
-        - name: KAFKA_BATCH_TIMEOUT_MS
-          value: "1000"
-        - name: KAFKA_WRITE_TIMEOUT_MS
-          value: "5000"
         - name: NODE_NAME
           valueFrom:
             fieldRef:
@@ -75,4 +114,3 @@ spec:
       - name: debugfs
         hostPath:
           path: /sys/kernel/debug
-      restartPolicy: Always
