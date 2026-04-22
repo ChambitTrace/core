@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -42,9 +43,29 @@ type EventLog struct {
 // Kafka로 보낼 EnrichedEventLog 구조체
 type EnrichedEventLog struct {
 	EventLog
-	PodContext string `json:"pod_context"`
-	Timestamp  string `json:"timestamp"`
+	PodContext  string `json:"pod_context"`
+	Timestamp   string `json:"timestamp"`
+	ClusterName string `json:"cluster_name,omitempty"`
+	NodeName    string `json:"node_name,omitempty"`
+	NodeIP      string `json:"node_ip,omitempty"`
 }
+
+type AgentConfig struct {
+	KafkaBrokers      []string
+	KafkaTopic        string
+	KafkaBatchSize    int
+	KafkaBatchTimeout time.Duration
+	KafkaWriteTimeout time.Duration
+	ClusterName       string
+	NodeName          string
+	NodeIP            string
+}
+
+const (
+	defaultKafkaBatchSize      = 100
+	defaultKafkaBatchTimeoutMs = 1000
+	defaultKafkaWriteTimeoutMs = 5000
+)
 
 // cgroup ID를 키로 사용하여 Pod 정보를 캐싱
 var infoCache = &sync.Map{}
@@ -52,7 +73,60 @@ var infoCache = &sync.Map{}
 // Pod UID를 추출하기 위한 정규식, cgroup v2 경로 형식에 맞춰 조정
 var podUIDRegex = regexp.MustCompile(`([a-f0-9]{8}[-_][a-f0-9]{4}[-_][a-f0-9]{4}[-_][a-f0-9]{4}[-_][a-f0-9]{12})`)
 
-// [수정됨] 새로운 정규식 및 UID 변환 로직이 적용된 getPodInfo 함수
+func getEnvOrDefault(key, fallback string) string {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func getEnvIntOrDefault(key string, fallback, minValue int) int {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < minValue {
+		log.Printf("Invalid value for %s=%q. Using default: %d", key, value, fallback)
+		return fallback
+	}
+
+	return parsed
+}
+
+func parseKafkaBrokers(raw string) []string {
+	parts := strings.Split(raw, ",")
+	brokers := make([]string, 0, len(parts))
+
+	for _, part := range parts {
+		broker := strings.TrimSpace(part)
+		if broker != "" {
+			brokers = append(brokers, broker)
+		}
+	}
+
+	return brokers
+}
+
+func loadAgentConfig() AgentConfig {
+	batchTimeoutMs := getEnvIntOrDefault("KAFKA_BATCH_TIMEOUT_MS", defaultKafkaBatchTimeoutMs, 1)
+	writeTimeoutMs := getEnvIntOrDefault("KAFKA_WRITE_TIMEOUT_MS", defaultKafkaWriteTimeoutMs, 1)
+
+	return AgentConfig{
+		KafkaBrokers:      parseKafkaBrokers(os.Getenv("KAFKA_BROKERS")),
+		KafkaTopic:        strings.TrimSpace(os.Getenv("KAFKA_TOPIC")),
+		KafkaBatchSize:    getEnvIntOrDefault("KAFKA_BATCH_SIZE", defaultKafkaBatchSize, 1),
+		KafkaBatchTimeout: time.Duration(batchTimeoutMs) * time.Millisecond,
+		KafkaWriteTimeout: time.Duration(writeTimeoutMs) * time.Millisecond,
+		ClusterName:       getEnvOrDefault("CLUSTER_NAME", "homelab-k3s"),
+		NodeName:          getEnvOrDefault("NODE_NAME", "unknown-node"),
+		NodeIP:            getEnvOrDefault("NODE_IP", "unknown-ip"),
+	}
+}
+
+// 새로운 정규식 및 UID 변환 로직이 적용된 getPodInfo 함수
 func getPodInfo(podLister corev1listers.PodLister, cgroupID uint64, pid uint32) string {
 	if cgroupID == 0 {
 		return "[Host Process]"
@@ -67,7 +141,6 @@ func getPodInfo(podLister corev1listers.PodLister, cgroupID uint64, pid uint32) 
 		return "[Host Process]"
 	}
 
-	// 새로운 정규식을 사용하여 Pod UID 추출
 	matches := podUIDRegex.FindStringSubmatch(string(content))
 	if len(matches) < 2 {
 		infoCache.Store(cgroupID, "[Host Process/Unknown Container]")
@@ -75,7 +148,6 @@ func getPodInfo(podLister corev1listers.PodLister, cgroupID uint64, pid uint32) 
 	}
 
 	podUIDFromCgroup := matches[1]
-	// [핵심 추가!] cgroup에서 추출한 UID의 언더스코어(_)를 하이픈(-)으로 변경
 	podUID := strings.ReplaceAll(podUIDFromCgroup, "_", "-")
 
 	allPods, err := podLister.List(labels.Everything())
@@ -84,7 +156,7 @@ func getPodInfo(podLister corev1listers.PodLister, cgroupID uint64, pid uint32) 
 		return "[Error Listing Pods]"
 	}
 
-	var podInfo string = "[Pod: Not Found]"
+	podInfo := "[Pod: Not Found]"
 	for _, pod := range allPods {
 		if string(pod.ObjectMeta.UID) == podUID {
 			podInfo = fmt.Sprintf("[Pod: %s/%s]", pod.Namespace, pod.Name)
@@ -100,12 +172,14 @@ func main() {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 
+	config := loadAgentConfig()
+
 	// --- Kubernetes 클라이언트 및 Informer 설정 ---
-	config, err := rest.InClusterConfig()
+	kubeConfig, err := rest.InClusterConfig()
 	if err != nil {
 		log.Fatalf("클러스터 내부 구성을 가져오는 데 실패했습니다: %v. 이 프로그램은 Pod 내부에서 실행되어야 합니다.", err)
 	}
-	clientset, err := kubernetes.NewForConfig(config)
+	clientset, err := kubernetes.NewForConfig(kubeConfig)
 	if err != nil {
 		log.Fatalf("Kubernetes 클라이언트셋 생성 실패: %v", err)
 	}
@@ -124,24 +198,29 @@ func main() {
 	}
 	log.Println("Informer caches synced successfully.")
 
-	// --- Kafka Writer 설정  ---
-	kafkaBrokers := os.Getenv("KAFKA_BROKERS")
-	kafkaTopic := os.Getenv("KAFKA_TOPIC")
+	// --- Kafka Writer 설정 ---
+	kafkaEnabled := len(config.KafkaBrokers) > 0 && config.KafkaTopic != ""
 	var writer *kafka.Writer
-	kafkaEnabled := kafkaBrokers != "" && kafkaTopic != ""
 	if kafkaEnabled {
 		writer = kafka.NewWriter(kafka.WriterConfig{
-			Brokers:  strings.Split(kafkaBrokers, ","),
-			Topic:    kafkaTopic,
-			Balancer: &kafka.LeastBytes{},
-			// 배치 전송을 위해 Kafka 클라이언트 내부 옵션을 조정할 수 있습니다.
-			BatchSize:    100,             // 배치 크기. 로그가 100개 모이면 전송
-			BatchTimeout: 1 * time.Second, /// 배치 타임아웃. 1초마다 전송 시도
+			Brokers:      config.KafkaBrokers,
+			Topic:        config.KafkaTopic,
+			Balancer:     &kafka.LeastBytes{},
+			BatchSize:    config.KafkaBatchSize,
+			BatchTimeout: config.KafkaBatchTimeout,
+			RequiredAcks: int(kafka.RequireOne),
 		})
 		defer writer.Close()
-		log.Printf("Kafka writer configured for topic '%s' on brokers: %s", kafkaTopic, kafkaBrokers)
+		log.Printf(
+			"Kafka writer configured. topic=%s brokers=%s batch_size=%d batch_timeout=%s write_timeout=%s",
+			config.KafkaTopic,
+			strings.Join(config.KafkaBrokers, ","),
+			config.KafkaBatchSize,
+			config.KafkaBatchTimeout,
+			config.KafkaWriteTimeout,
+		)
 	} else {
-		log.Printf("Kafka disabled: set both KAFKA_BROKERS and KAFKA_TOPIC to enable forwarding")
+		log.Printf("Kafka disabled: set KAFKA_BROKERS and KAFKA_TOPIC to enable forwarding")
 	}
 
 	cmd := exec.Command("../trace/loader")
@@ -157,33 +236,35 @@ func main() {
 	log.Println("eBPF C 로더를 시작했습니다. 이벤트 수신 대기 중...")
 	defer cmd.Process.Kill()
 
-	// 이벤트 처리 로직을 배치 방식으로 변경합니다.
 	go func() {
 		scanner := bufio.NewScanner(stdout)
+		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
-		const batchSize = 100
-		flushFrequency := 1 * time.Second
-
-		var messageBatch []kafka.Message
+		batchSize := config.KafkaBatchSize
+		flushFrequency := config.KafkaBatchTimeout
+		messageBatch := make([]kafka.Message, 0, batchSize)
 		ticker := time.NewTicker(flushFrequency)
 
 		flushBatch := func() {
 			if !kafkaEnabled || len(messageBatch) == 0 {
 				return
 			}
-			err := writer.WriteMessages(context.Background(), messageBatch...)
+
+			writeCtx, writeCancel := context.WithTimeout(context.Background(), config.KafkaWriteTimeout)
+			err := writer.WriteMessages(writeCtx, messageBatch...)
+			writeCancel()
 			if err != nil {
 				log.Printf("Failed to write %d messages to Kafka: %v", len(messageBatch), err)
 			} else {
 				log.Printf("Successfully wrote %d messages to Kafka.", len(messageBatch))
 			}
-			messageBatch = nil // 배치 초기화
+
+			messageBatch = messageBatch[:0]
 		}
 
 		defer ticker.Stop()
 
 		for {
-			// Non-blocking scan attempt
 			if scanner.Scan() {
 				var e EventLog
 				if err := json.Unmarshal(scanner.Bytes(), &e); err != nil {
@@ -193,30 +274,43 @@ func main() {
 
 				podContext := getPodInfo(podLister, e.CgroupID, e.Pid)
 				enrichedLog := EnrichedEventLog{
-					EventLog:   e,
-					PodContext: podContext,
-					Timestamp:  time.Now().UTC().Format(time.RFC3339),
+					EventLog:    e,
+					PodContext:  podContext,
+					Timestamp:   time.Now().UTC().Format(time.RFC3339),
+					ClusterName: config.ClusterName,
+					NodeName:    config.NodeName,
+					NodeIP:      config.NodeIP,
 				}
+
 				if kafkaEnabled {
 					jsonData, err := json.Marshal(enrichedLog)
 					if err != nil {
 						log.Printf("JSON marshalling error: %v", err)
 						continue
 					}
-					messageBatch = append(messageBatch, kafka.Message{Value: jsonData})
+
+					msg := kafka.Message{Value: jsonData}
+					if config.NodeName != "" {
+						msg.Key = []byte(config.NodeName)
+					}
+					messageBatch = append(messageBatch, msg)
 				}
 
-				// 콘솔에는 즉시 출력하여 실시간 확인 가능
-				logString := fmt.Sprintf("%-15s | %-40s | PID: %-6d | Comm: %-15s", enrichedLog.Type, enrichedLog.PodContext, enrichedLog.Pid, enrichedLog.Comm)
+				logString := fmt.Sprintf(
+					"%-15s | Node: %-20s | %-40s | PID: %-6d | Comm: %-15s",
+					enrichedLog.Type,
+					enrichedLog.NodeName,
+					enrichedLog.PodContext,
+					enrichedLog.Pid,
+					enrichedLog.Comm,
+				)
 				log.Println(logString)
 
 				if kafkaEnabled && len(messageBatch) >= batchSize {
 					flushBatch()
-					// 타이머를 리셋하여 불필요한 즉시 flush 방지
 					ticker.Reset(flushFrequency)
 				}
 			} else {
-				// 스캐너가 멈췄을 때(EOF 또는 에러)
 				flushBatch()
 				if err := scanner.Err(); err != nil {
 					log.Printf("Error reading from scanner: %v", err)
@@ -224,12 +318,10 @@ func main() {
 				return
 			}
 
-			// Check for timeout flush
 			select {
 			case <-ticker.C:
 				flushBatch()
 			default:
-				// non-blocking
 			}
 		}
 	}()
