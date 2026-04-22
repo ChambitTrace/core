@@ -59,6 +59,7 @@ type AgentConfig struct {
 	ClusterName       string
 	NodeName          string
 	NodeIP            string
+	LogEachEvent      bool
 }
 
 const (
@@ -110,6 +111,23 @@ func parseKafkaBrokers(raw string) []string {
 	return brokers
 }
 
+func getEnvBoolOrDefault(key string, fallback bool) bool {
+	value := strings.TrimSpace(strings.ToLower(os.Getenv(key)))
+	if value == "" {
+		return fallback
+	}
+
+	switch value {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		log.Printf("Invalid value for %s=%q. Using default: %t", key, value, fallback)
+		return fallback
+	}
+}
+
 func loadAgentConfig() AgentConfig {
 	batchTimeoutMs := getEnvIntOrDefault("KAFKA_BATCH_TIMEOUT_MS", defaultKafkaBatchTimeoutMs, 1)
 	writeTimeoutMs := getEnvIntOrDefault("KAFKA_WRITE_TIMEOUT_MS", defaultKafkaWriteTimeoutMs, 1)
@@ -123,6 +141,7 @@ func loadAgentConfig() AgentConfig {
 		ClusterName:       getEnvOrDefault("CLUSTER_NAME", "homelab-k3s"),
 		NodeName:          getEnvOrDefault("NODE_NAME", "unknown-node"),
 		NodeIP:            getEnvOrDefault("NODE_IP", "unknown-ip"),
+		LogEachEvent:      getEnvBoolOrDefault("LOG_EACH_EVENT", false),
 	}
 }
 
@@ -296,15 +315,17 @@ func main() {
 					messageBatch = append(messageBatch, msg)
 				}
 
-				logString := fmt.Sprintf(
-					"%-15s | Node: %-20s | %-40s | PID: %-6d | Comm: %-15s",
-					enrichedLog.Type,
-					enrichedLog.NodeName,
-					enrichedLog.PodContext,
-					enrichedLog.Pid,
-					enrichedLog.Comm,
-				)
-				log.Println(logString)
+				if config.LogEachEvent {
+					logString := fmt.Sprintf(
+						"%-15s | Node: %-20s | %-40s | PID: %-6d | Comm: %-15s",
+						enrichedLog.Type,
+						enrichedLog.NodeName,
+						enrichedLog.PodContext,
+						enrichedLog.Pid,
+						enrichedLog.Comm,
+					)
+					log.Println(logString)
+				}
 
 				if kafkaEnabled && len(messageBatch) >= batchSize {
 					flushBatch()

@@ -43,6 +43,10 @@ data:
   KAFKA_BATCH_SIZE: "100"
   KAFKA_BATCH_TIMEOUT_MS: "1000"
   KAFKA_WRITE_TIMEOUT_MS: "5000"
+  ENABLE_OPEN_EVENTS: "false"
+  ENABLE_READ_EVENTS: "false"
+  ENABLE_WRITE_EVENTS: "false"
+  LOG_EACH_EVENT: "false"
 ---
 apiVersion: apps/v1
 kind: DaemonSet

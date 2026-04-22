@@ -16,6 +16,9 @@ struct {
 } last_event SEC(".maps");
 
 const volatile __u64 DEBOUNCE_NS = 1000000000; // 1초
+const volatile __u32 ENABLE_OPEN_EVENTS = 0;
+const volatile __u32 ENABLE_READ_EVENTS = 0;
+const volatile __u32 ENABLE_WRITE_EVENTS = 0;
 
 static __always_inline bool should_debounce(u32 pid, enum event_type type) {
     struct event_key key = {.pid = pid, .type = type};
@@ -72,6 +75,7 @@ int tracepoint_##name(struct trace_event_raw_sys_enter *ctx) {             \
 #define TRACE_FILENAME_DEBOUNCED(name, type_enum, arg_idx)                  \
 SEC("tracepoint/syscalls/sys_enter_" #name)                                 \
 int tracepoint_##name(struct trace_event_raw_sys_enter *ctx) {              \
+    if (!ENABLE_OPEN_EVENTS) return 0;                                      \
     u32 pid = bpf_get_current_pid_tgid() >> 32;                             \
     if (should_debounce(pid, type_enum)) return 0;                          \
     struct event_t *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);        \
@@ -139,6 +143,7 @@ TRACE_FILENAME_DEBOUNCED(creat, EVENT_TYPE_OPEN, 0)
 // openat은 arg1을 사용하므로 특수 핸들러 유지
 SEC("tracepoint/syscalls/sys_enter_openat")
 int tracepoint_openat(struct trace_event_raw_sys_enter *ctx) {
+    if (!ENABLE_OPEN_EVENTS) return 0;
     u32 pid = bpf_get_current_pid_tgid() >> 32;
     if (should_debounce(pid, EVENT_TYPE_OPEN)) return 0;
     const char *pathname_ptr;
@@ -155,8 +160,37 @@ int tracepoint_openat(struct trace_event_raw_sys_enter *ctx) {
     return 0;
 }
 
-TRACE_SIMPLE_DEBOUNCED(read,  EVENT_TYPE_READ)
-TRACE_SIMPLE_DEBOUNCED(write, EVENT_TYPE_WRITE)
+SEC("tracepoint/syscalls/sys_enter_read")
+int tracepoint_read(struct trace_event_raw_sys_enter *ctx) {
+    if (!ENABLE_READ_EVENTS) return 0;
+    u32 pid = bpf_get_current_pid_tgid() >> 32;
+    if (should_debounce(pid, EVENT_TYPE_READ)) return 0;
+    struct event_t *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (!e) return 0;
+    e->pid = pid;
+    e->type = EVENT_TYPE_READ;
+    e->cgroup_id = bpf_get_current_cgroup_id();
+    bpf_get_current_comm(&e->comm, sizeof(e->comm));
+    bpf_ringbuf_submit(e, 0);
+    record_event_timestamp(pid, EVENT_TYPE_READ);
+    return 0;
+}
+
+SEC("tracepoint/syscalls/sys_enter_write")
+int tracepoint_write(struct trace_event_raw_sys_enter *ctx) {
+    if (!ENABLE_WRITE_EVENTS) return 0;
+    u32 pid = bpf_get_current_pid_tgid() >> 32;
+    if (should_debounce(pid, EVENT_TYPE_WRITE)) return 0;
+    struct event_t *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (!e) return 0;
+    e->pid = pid;
+    e->type = EVENT_TYPE_WRITE;
+    e->cgroup_id = bpf_get_current_cgroup_id();
+    bpf_get_current_comm(&e->comm, sizeof(e->comm));
+    bpf_ringbuf_submit(e, 0);
+    record_event_timestamp(pid, EVENT_TYPE_WRITE);
+    return 0;
+}
 
 SEC("tracepoint/syscalls/sys_enter_chmod") // chmod/chown 등은 특수 인자 처리
 int tracepoint_chmod(struct trace_event_raw_sys_enter *ctx) {

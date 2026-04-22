@@ -4,9 +4,6 @@ metadata:
   name: chambit-agent-config
   namespace: monitor
 data:
-  # Kafka가 맥미니 Docker에서 실행 중이면 맥미니의 LAN IP를 사용하세요.
-  # 현재 예시: 192.168.200.178:9092
-  # 필요 시 tailscale 주소를 콤마로 추가할 수 있습니다.
   KAFKA_BROKERS: "192.168.200.178:9092"
   KAFKA_TOPIC: "chambit-ebpf-events"
   CLUSTER_NAME: "proxmox-k8s"
@@ -21,22 +18,23 @@ data:
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: chambit-innodeagent
+  name: chambit-innodeagent-canary
   namespace: monitor
 spec:
   selector:
     matchLabels:
-      app: chambit-innodeagent
+      app: chambit-innodeagent-canary
   template:
     metadata:
       labels:
-        app: chambit-innodeagent
+        app: chambit-innodeagent-canary
     spec:
       serviceAccountName: ebpf-monitor-sa
       hostPID: true
       nodeSelector:
         kubernetes.io/os: linux
         kubernetes.io/arch: amd64
+        kubernetes.io/hostname: "REPLACE_WITH_CANARY_NODE"
       tolerations:
       - key: node-role.kubernetes.io/control-plane
         operator: Exists
@@ -46,8 +44,8 @@ spec:
         effect: NoSchedule
       containers:
       - name: chambit-innodeagent
-        image: ghcr.io/chambittrace/core:v1.0.4
-        imagePullPolicy: IfNotPresent
+        image: 192.168.200.178:5001/chambit-core:safe
+        imagePullPolicy: Always
         envFrom:
         - configMapRef:
             name: chambit-agent-config

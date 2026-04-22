@@ -7,6 +7,8 @@
 #include <sys/resource.h>
 #include <json-c/json.h>
 #include <linux/types.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "trace.skel.h"
 #include "event.h"
@@ -94,6 +96,22 @@ void handle_signal(int sig) {
     exiting = true;
 }
 
+static int get_env_flag(const char *key, int default_value) {
+    const char *value = getenv(key);
+    if (!value || !*value) {
+        return default_value;
+    }
+
+    if (strcmp(value, "1") == 0 || strcasecmp(value, "true") == 0 || strcasecmp(value, "yes") == 0) {
+        return 1;
+    }
+    if (strcmp(value, "0") == 0 || strcasecmp(value, "false") == 0 || strcasecmp(value, "no") == 0) {
+        return 0;
+    }
+
+    return default_value;
+}
+
 int main() {
     bump_memlock_rlimit();
     struct trace_bpf *skel;
@@ -101,15 +119,27 @@ int main() {
     int err;
     signal(SIGINT, handle_signal);
 
-    skel = trace_bpf__open_and_load();
+    skel = trace_bpf__open();
     if (!skel) {
+        fprintf(stderr, "Failed to open BPF program\n");
+        return 1;
+    }
+
+    skel->rodata->ENABLE_OPEN_EVENTS = get_env_flag("ENABLE_OPEN_EVENTS", 0);
+    skel->rodata->ENABLE_READ_EVENTS = get_env_flag("ENABLE_READ_EVENTS", 0);
+    skel->rodata->ENABLE_WRITE_EVENTS = get_env_flag("ENABLE_WRITE_EVENTS", 0);
+
+    err = trace_bpf__load(skel);
+    if (err) {
         fprintf(stderr, "Failed to load BPF program\n");
+        trace_bpf__destroy(skel);
         return 1;
     }
 
     err = trace_bpf__attach(skel);
     if (err) {
         fprintf(stderr, "Failed to attach BPF program\n");
+        trace_bpf__destroy(skel);
         return 1;
     }
 

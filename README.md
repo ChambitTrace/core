@@ -89,3 +89,33 @@ What this agent does not send by itself:
 - Kubernetes Event objects from the API server
 
 If you need container log shipping, pair this with a log collector such as Fluent Bit or Vector and keep Chambit for runtime tracing.
+
+## Safe Defaults
+For small clusters and Proxmox-backed homelabs, keep these disabled unless you have measured the overhead:
+- `ENABLE_OPEN_EVENTS=false`
+- `ENABLE_READ_EVENTS=false`
+- `ENABLE_WRITE_EVENTS=false`
+- `LOG_EACH_EVENT=false`
+
+`read` and `write` syscall tracing is extremely noisy and can destabilize shared virtualization hosts or management paths if enabled cluster-wide.
+
+## Canary Rollout
+Build the safe image locally:
+```bash
+docker build -t chambit-core:safe .
+```
+
+Run a local image registry on the Mac mini:
+```bash
+docker compose -f docker-compose.registry.yml up -d
+docker tag chambit-core:safe localhost:5001/chambit-core:safe
+docker push localhost:5001/chambit-core:safe
+```
+
+Then edit [`Daemonset.canary.yaml`](./Daemonset.canary.yaml) and replace `REPLACE_WITH_CANARY_NODE` with one Kubernetes node hostname before applying:
+```bash
+kubectl apply -f rbac.yaml
+kubectl apply -f Daemonset.canary.yaml
+```
+
+For K3s, configure each node to trust the Mac mini registry over plain HTTP by creating `/etc/rancher/k3s/registries.yaml` and restarting K3s. Official docs: [K3s Private Registry Configuration](https://docs.k3s.io/installation/private-registry)
